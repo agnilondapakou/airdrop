@@ -35,6 +35,18 @@ def get_proof(index: int, tree_layers: list) -> list:
         index //= 2 # move to the next layer
     return proof
 
+def verify_proof(leaf: str, proof: list, root: str) -> bool:
+    """Verifies if a given leaf belongs to the Merkle Tree with the provided proof."""
+    computed_hash = keccak256(leaf)
+
+    for p in proof:
+        if computed_hash < p:
+            computed_hash = keccak256(computed_hash + p)
+        else:
+            computed_hash = keccak256(p + computed_hash)
+
+    return computed_hash == root
+
 waitlist = [
     "0x1234567890abcdef1234567890abcdef12345678 | 100"
     "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd | 200"
@@ -52,9 +64,12 @@ waitlist = [
 merkle_root = buid_merkle_tree(waitlist)
 tree_layers = buid_merkle_tree(waitlist)
 
-print("Merkle root : " + merkle_root)
+print("Merkle root : 0x" + merkle_root)
 
-merkle_proof = get_proof(1, tree_layers)
+merkle_proof = get_proof(2, tree_layers)
 
 print(merkle_proof)
+
+is_valid = verify_proof(waitlist[0], merkle_proof, merkle_root)
+print("Is Valid Proof?", is_valid)
     
