@@ -5,7 +5,7 @@ import { expect } from "chai";
 import { MerkleTree } from "merkletreejs";
 import keccak256 from "keccak256";
 
-describe("PakouAirdrop", function () {
+describe("PakouAirdrop tests", function () {
   const deployContracts = async () => {
     const [owner, addr1, addr2, addr3] = await ethers.getSigners();
 
@@ -30,7 +30,7 @@ describe("PakouAirdrop", function () {
     return { airdrop, token, owner, addr1, addr2, addr3, merkleTree };
   };
 
-  it("Permet aux utilisateurs éligibles de réclamer l'airdrop", async function () {
+  it("Should claim tokens", async function () {
     const { airdrop, token, addr1, merkleTree } = await loadFixture(deployContracts);
     const amount = ethers.parseEther("100");
     const leaf = ethers.solidityPackedKeccak256(["address", "uint256"], [addr1.address, amount]);
@@ -42,7 +42,7 @@ describe("PakouAirdrop", function () {
     expect(await token.balanceOf(addr1.address)).to.equal(amount);
   });
 
-  it("Empêche une double réclamation", async function () {
+  it("Should fail if user already claimed", async function () {
     const { airdrop, addr1, merkleTree } = await loadFixture(deployContracts);
     const amount = ethers.parseEther("100");
     const leaf = ethers.solidityPackedKeccak256(["address", "uint256"], [addr1.address, amount]);
@@ -54,7 +54,7 @@ describe("PakouAirdrop", function () {
       .to.be.revertedWith("Already claimed");
   });
 
-  it("Empêche un utilisateur non éligible de réclamer", async function () {
+  it("Should fail if user is not eligible to claim", async function () {
     const { airdrop, addr1,addr3, merkleTree } = await loadFixture(deployContracts);
     const amount = ethers.parseEther("100");
     const leaf = ethers.solidityPackedKeccak256(["address", "uint256"], [addr1.address, amount]);
@@ -64,7 +64,7 @@ describe("PakouAirdrop", function () {
       .to.be.revertedWith("Not eligible");
   });
 
-  it("Permet au propriétaire de mettre à jour le Merkle Root", async function () {
+  it("Should update merkle root", async function () {
     const { airdrop, owner } = await loadFixture(deployContracts);
     const newMerkleRoot = ethers.keccak256(ethers.toUtf8Bytes("new root"));
     await expect(airdrop.connect(owner).updateMerkleRoot(newMerkleRoot))
@@ -72,7 +72,7 @@ describe("PakouAirdrop", function () {
     expect(await airdrop.merkleRoot()).to.equal(newMerkleRoot);
   });
 
-  it("Empêche un non-propriétaire de mettre à jour le Merkle Root", async function () {
+  it("Should fail if user is not permit to update merkle root", async function () {
     const { airdrop, addr1 } = await loadFixture(deployContracts);
     const newMerkleRoot = ethers.keccak256(ethers.toUtf8Bytes("new root"));
     await expect(airdrop.connect(addr1).updateMerkleRoot(newMerkleRoot))
