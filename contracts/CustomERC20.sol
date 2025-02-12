@@ -21,26 +21,31 @@ contract CustomERC20 {
     event Approval(address indexed owner, address indexed spender, uint256 amount);
     event Burn(address indexed from, uint256 amount);
 
-    // custom messages
-    error NotContractOwner();
-    error InsufficientBalance(address account, uint256 balance, uint256 attemptAmount);
-    error InsufficientAllowance();
-    error InvalidRecipiend();
-    error AllowanceExceeded(address spender, uint256 allowance, uint256 attempted);
-
     // modifier
     modifier onlyOwner() {
         // use custom messages
-        if (msg.sender != owner) revert NotContractOwner();
+        require(msg.sender != owner, "Not contract owner");
         _;
     }
 
+    constructor (string memory _name, string memory _symbol, uint8 _decimals, uint256 _totalSupply) {
+        name = _name;
+        symbol = _symbol;
+        decimals = _decimals;
+        totalSupply = _totalSupply;
+        balanceOf[msg.sender] = _totalSupply;
+        owner = msg.sender;
+    }
+
     function _mint(address to, uint256 amount) internal {
-        totalSupply += amount;
-        balanceOf[to] += amount;
+        unchecked {
+            totalSupply += amount;
+            balanceOf[to] += amount;
+        }
         emit Mint(to, amount);
         emit Transfer(address(0), to, amount);
     }
+
 
     function mint(address to, uint256 amount) external onlyOwner() {
         _mint(to, amount);
@@ -53,9 +58,9 @@ contract CustomERC20 {
     }
     
     function transfer(address to, uint256 amount) external returns (bool) {
-        if(balanceOf[msg.sender] < amount) revert InsufficientBalance(msg.sender, balanceOf[msg.sender], amount);
+        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
 
-        if(to == address(0)) revert InvalidRecipiend();
+        require(to != address(0), "Invalid recipient");
 
         _transfer(msg.sender, to, amount);
         return true;
@@ -68,9 +73,9 @@ contract CustomERC20 {
     }
 
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
-        if(balanceOf[from] < amount) revert InsufficientBalance(from, balanceOf[from], amount);
+        require(balanceOf[from] >= amount, "Insufficient balance");
 
-        if(allowance[from][msg.sender] < amount) revert AllowanceExceeded(msg.sender, allowance[from][msg.sender], amount);
+        require(allowance[from][msg.sender] < amount, "Insufficient allowance");
 
         allowance[from][msg.sender] -= amount;
         _transfer(from, to, amount);
@@ -78,7 +83,7 @@ contract CustomERC20 {
     }
 
     function burn(uint256 amount) external {
-        if(balanceOf[msg.sender] < amount) revert InsufficientBalance(msg.sender, balanceOf[msg.sender], amount);
+        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
 
         balanceOf[msg.sender] -= amount;
         totalSupply -= amount;

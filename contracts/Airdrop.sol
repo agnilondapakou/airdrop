@@ -12,19 +12,17 @@ contract PakouAirdrop is Ownable {
 
     event AirdropClaimed(address account, uint256 amount);
 
-    error AlreadyClaimed();
-    error NotEligible();
-
-    constructor (bytes32 _merkleRoot) Ownable(msg.sender) {
+    constructor (bytes32 _merkleRoot, address _token) Ownable(msg.sender) {
         merkleRoot = _merkleRoot;
+        token = CustomERC20(_token);
     }
 
     function claimAirdrop(uint256 amount, bytes32[] calldata proof) external {
-        if(!claimed[msg.sender]) revert AlreadyClaimed();
+        require(!claimed[msg.sender], "Already claimed");
 
         bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
 
-        if(!MerkleProof.verify(proof, merkleRoot, leaf)) revert NotEligible();
+        require(MerkleProof.verify(proof, merkleRoot, leaf), "Not eligible");
 
         claimed[msg.sender] = true;
         emit AirdropClaimed(msg.sender, amount);

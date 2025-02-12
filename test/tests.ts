@@ -1,52 +1,82 @@
-import {
-  time,
-  loadFixture,
-} from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { assert } from "console";
 import hre, { ethers } from "hardhat";
 import { expect } from "chai";
+import { MerkleTree } from "merkletreejs";
+import keccak256 from "keccak256";
 
-describe("Lock", function () {
-  async function deployPakouAirdrop() {
+describe("PakouAirdrop", function () {
+  const deployContracts = async () => {
+    const [owner, addr1, addr2, addr3] = await ethers.getSigners();
 
-    const ADDRESS_ZERO = '0x0000000000000000000000000000000000000000'
+    const Token = await ethers.getContractFactory("CustomERC20");
+    const token = await Token.deploy("PakouToken", "PAK", 18, ethers.parseEther("1000000"));
+    await token.waitForDeployment();
 
-    const [owner, claimer] = await hre.ethers.getSigners();
+    const claimingAddresses = [
+        [addr1.address, ethers.parseEther("100")],
+        [addr2.address, ethers.parseEther("100")]
+      ].map(([addr, amount]) => keccak256(ethers.solidityPacked(["address", "uint256"], [addr, amount])));
+      
+    const merkleTree = new MerkleTree(claimingAddresses, keccak256, { sortPairs: true });
+    const merkleRoot = merkleTree.getHexRoot();
 
-    const AirdropContract = await hre.ethers.getContractFactory("PakouAirdrop");
-    const airdropContract = await AirdropContract.deploy("0x0ac8f340ce5584b493a0f1488ed6111d9d220903fd9188de802b131621e680e4");
+    const Airdrop = await ethers.getContractFactory("PakouAirdrop");
+    const airdrop = await Airdrop.deploy(merkleRoot, await token.getAddress());
+    await airdrop.waitForDeployment();
 
-    return { airdropContract, owner, claimer, ADDRESS_ZERO};
-  }
+    await token.transfer(await airdrop.getAddress(), ethers.parseEther("100"));
 
-  describe("Deploy PakouAirdrop", function () {
-    it("Should deploy PakouAirdrop", async function () {
-      let { airdropContract, owner } = await loadFixture(deployPakouAirdrop);
+    return { airdrop, token, owner, addr1, addr2, addr3, merkleTree };
+  };
 
-      const runner = airdropContract.runner as HardhatEthersSigner;
+  it("Permet aux utilisateurs éligibles de réclamer l'airdrop", async function () {
+    const { airdrop, token, addr1, merkleTree } = await loadFixture(deployContracts);
+    const amount = ethers.parseEther("100");
+    const leaf = ethers.solidityPackedKeccak256(["address", "uint256"], [addr1.address, amount]);
+    const proof = merkleTree.getHexProof(leaf);
 
-      expect(runner.address).to.be.equal(owner.address);
-    });
-
-    it("Should not be address 0", async function () {
-      let { airdropContract, ADDRESS_ZERO } = await loadFixture(deployPakouAirdrop);
-
-      expect(airdropContract.target).to.be.not.equal(ADDRESS_ZERO)
-    });
+    await expect(airdrop.connect(addr1).claimAirdrop(amount, proof))
+      .to.emit(airdrop, "AirdropClaimed")
+      .withArgs(addr1.address, amount);
+    expect(await token.balanceOf(addr1.address)).to.equal(amount);
   });
 
-  describe("Claim PAK", function () {
-    it("Should fail if user alredy claimed", async function () {
-      let { airdropContract } = await loadFixture(deployPakouAirdrop);
+  it("Empêche une double réclamation", async function () {
+    const { airdrop, addr1, merkleTree } = await loadFixture(deployContracts);
+    const amount = ethers.parseEther("100");
+    const leaf = ethers.solidityPackedKeccak256(["address", "uint256"], [addr1.address, amount]);
+    const proof = merkleTree.getHexProof(leaf);
 
-      expect(airdropContract.claimed).to.be.revertedWith("Already claimed");
-    });
+    await airdrop.connect(addr1).claimAirdrop(amount, proof);
 
-    it("Should fail if user is not in the waitlist", async function () {
-      let { airdropContract } = await loadFixture(deployPakouAirdrop);
-
-    });
+    await expect(airdrop.connect(addr1).claimAirdrop(amount, proof))
+      .to.be.revertedWith("Already claimed");
   });
 
+  it("Empêche un utilisateur non éligible de réclamer", async function () {
+    const { airdrop, addr1,addr3, merkleTree } = await loadFixture(deployContracts);
+    const amount = ethers.parseEther("100");
+    const leaf = ethers.solidityPackedKeccak256(["address", "uint256"], [addr1.address, amount]);
+    const proof = merkleTree.getHexProof(leaf);
+
+    await expect(airdrop.connect(addr3).claimAirdrop(amount, proof))
+      .to.be.revertedWith("Not eligible");
+  });
+
+  it("Permet au propriétaire de mettre à jour le Merkle Root", async function () {
+    const { airdrop, owner } = await loadFixture(deployContracts);
+    const newMerkleRoot = ethers.keccak256(ethers.toUtf8Bytes("new root"));
+    await expect(airdrop.connect(owner).updateMerkleRoot(newMerkleRoot))
+      .to.not.be.reverted;
+    expect(await airdrop.merkleRoot()).to.equal(newMerkleRoot);
+  });
+
+  it("Empêche un non-propriétaire de mettre à jour le Merkle Root", async function () {
+    const { airdrop, addr1 } = await loadFixture(deployContracts);
+    const newMerkleRoot = ethers.keccak256(ethers.toUtf8Bytes("new root"));
+    await expect(airdrop.connect(addr1).updateMerkleRoot(newMerkleRoot))
+    .to.be.revertedWithCustomError(airdrop, "OwnableUnauthorizedAccount");
+  
+  });
 });
